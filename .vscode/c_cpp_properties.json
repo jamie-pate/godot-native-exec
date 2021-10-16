@@ -4,8 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${default}",
-                "${workspaceFolder}/godot-cpp/include/core",
                 "${workspaceFolder}/godot-cpp/include/gen",
+                "${workspaceFolder}/godot-cpp/include/core",
                 "${workspaceFolder}/godot-cpp/godot-headers",
                 "${workspaceFolder}/godot-cpp/include"
             ],
