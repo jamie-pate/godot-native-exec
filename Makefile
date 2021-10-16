@@ -9,7 +9,7 @@ endif
 OBJ_DIR=obj
 SRC_DIR=src
 LIB_DIR=lib
-BIN_DIR=bin
+TOOLS_DIR=tools
 
 WARNS = -Wall -Wno-parentheses
 
@@ -17,10 +17,9 @@ LIBNAME=godot-exec
 ifndef TARGET_DIR
 TARGET_DIR=bin
 endif
-ifdef PLATFORM
-PLATFORMS=$(PLATFORM)
-else
-PLATFORMS=windows osx linux
+# windows (TODO: linux osx?)
+ifndef PLATFORM
+PLATFORM=windows
 endif
 
 uid=$(shell id -u)
@@ -28,29 +27,37 @@ gid=$(shell id -g)
 
 INCLUDES=godot-headers
 
-CXX = g++
-CXX_CONTAINER_TAG=godot-gdnative-exec-mingw
-CXX_CONTAINER_STAMP=$(OBJ_DIR)/$(CXX_CONTAINER_TAG).stamp
-CXX_windows=bin/x86_64-w64-mingw32-g++
-AR_windows=bin/x86_64-w64-mingw32-ar
-RANLIB_windows=bin/x86_64-w64-mingw32-ranlib
-CXX_CONTAINER_windows=$(CXX_CONTAINER_STAMP)
+TOOL_PREFIX=
 
-RUN_DOCKERIZED=bin/run-docker-tool
-BASH_DOCKERIZED=bin/bash
+CXX = g++
+CXX_CONTAINER_TAG=godot-gdnative-exec-build
+CXX_CONTAINER_STAMP=$(OBJ_DIR)/$(CXX_CONTAINER_TAG).stamp
+PREFIX=x86_64-w64-mingw32-
+CXX=$(TOOL_PREFIX)g++
+AR=$(TOOL_PREFIX)ar
+RANLIB=$(TOOL_PREFIX)ranlib
+CXX_CONTAINER_IMAGE=$(CXX_CONTAINER_STAMP)
+
+RUN_DOCKERIZED=run-build-tool.sh
+BASH_DOCKERIZED=$(TOOLS_DIR)/bash
 #RC = windres
 
 CPP_BINDINGS_PATH=godot-cpp
 GODOT_INCLUDES=$(addprefix -I$(CPP_BINDINGS_PATH)/,include/ include/core/ include/gen/ godot-headers/)
 CFLAGS = -O3 -std=c++17 ${WARNS} $(GODOT_INCLUDES)
-LDFLAGS_windows = -shared -s -Wl,--subsystem,windows,--out-implib,lib/lib$(LIBNAME).a -lmingw32
+LDFLAGS = -shared -s -Wl,--subsystem,windows,--out-implib,lib/lib$(LIBNAME).a -lmingw32
+
+
+ifeq ($(PLATFORM),windows)
+TOOL_PREFIX=$(TOOLS_DIR)/x86_64-w64-mingw32-
+endif
 
 # TODO: add windows32 and linux32 and osx_native ?
-.PHONY: $(PLATFORMS) all clean distclean
+.PHONY: $(PLATFORM) all clean distclean
 
 default: all
 
-all: $(PLATFORMS)
+all: $(PLATFORM)
 clean:
 	rm -rf $(TARGET_DIR)
 	rm -rf $(OBJ_DIR)
@@ -69,76 +76,57 @@ windows: $(LIB_NAME_windows)
 osx: $(LIB_NAME_osx)
 linux: $(LIB_NAME_linux)
 
-$(TARGET_DIR):
+$(TARGET_DIR) $(OBJ_DIR) $(LIB_DIR) $(TOOLS_DIR):
 	mkdir -p "$@"
-$(OBJ_DIR):
-	mkdir -p "$@"
-$(LIB_DIR):
-	mkdir -p "$@"
-ifneq ($(BIN_DIR),$(TARGET_DIR))
-$(BIN_DIR):
-	mkdir -p "$@"
-endif
 
 GODOT_CPP_SUBMODULE=godot-cpp/.gitattributes
 GODOT_CPP_GEN=godot-cpp/src/gen
 
 $(GODOT_CPP_SUBMODULE):
-	git submodule update --init $@
+	git submodule update --init --recursive $(dir $@)
 
-# TODO: does + make scons aware of the job server? or should we just use nproc
-# TODO: multiplatform?
-$(GODOT_CPP_GEN): $(GODOT_CPP_SUBMODULE) | $(CXX_windows) $(AR_windows) $(RANLIB_windows)
-	+export PATH=${PATH}:$(CURDIR)/$(BIN_DIR);cd godot-cpp; set +x; \
-	scons generate_bindings=yes platform=windows
+# TODO: does + make scons aware of the job server? or should we just use nproc.
+# without -j is very slow.
+# TODO: multiplatform? mount godot-cpp/src/gen in a
+# separate volume inside the docker container for each platform?
+# TODO: parse api.json and use that to determine if we need to run this?
+# TODO: reset to fix the terminal which gets bunged up by this step...
+# TODO: This grep|sed combo is probably super fragile?
+GODOT_CPP_GEN_CLASSES=$(shell grep -P '^\t\t"name": "[^_]' godot-cpp/godot-headers/api.json  | sed -E 's/^\t\t"name": "([^"]+)",?/\1/g')
+GODOT_CPP_GEN_CPP=$(addprefix godot-cpp/src/gen,$(addsuffix .cpp,$(GODOT_CPP_GEN_CLASSES)))
+$(GODOT_CPP_GEN_CPP) $(GODOT_CPP_GEN)&: $(GODOT_CPP_SUBMODULE) | $(CXX) $(AR) $(RANLIB)
+	export PATH=${PATH}:$(CURDIR)/$(TOOLS_DIR);cd godot-cpp; \
+	scons generate_bindings=yes platform=$(PLATFORM) -j$$(nproc)
 
-$(RUN_DOCKERIZED): $(CXX_CONTAINER_STAMP) | $(BIN_DIR)
-	echo "docker run $$([ -t 0 ] && echo '-it') \
-		-v $(CURDIR):$(CURDIR) -w \$${PWD} -u $$(id -u):$$(id -g) \
-		$(CXX_CONTAINER_TAG) \"\$$(basename \$$0)\" \"\$$@\" " \
-		> $@ && chmod +x $@
+$(CXX) $(AR) $(RANLIB) $(BASH_DOCKERIZED): $(RUN_DOCKERIZED) | $(TOOLS_DIR)
+	ln -fs ../$(notdir $(RUN_DOCKERIZED)) $@
 
-$(CXX_windows) $(AR_windows) $(RANLIB_windows) $(BASH_DOCKERIZED): $(CXX_CONTAINER_windows) $(RUN_DOCKERIZED)
-	ln -fs $(notdir $(RUN_DOCKERIZED)) $@
-
-$(CXX_CONTAINER_STAMP): Dockerfile $(OBJ_DIR)
+$(CXX_CONTAINER_IMAGE): Dockerfile $(OBJ_DIR)
 	docker build . -t $(CXX_CONTAINER_TAG) && docker image ls $(CXX_CONTAINER_TAG) -q > $@
 
 SRCS=$(wildcard src/*.cpp)
 
-define OBJS
-OBJS_$(1) = $$(SRCS:src/%.cpp=$$(OBJ_DIR)/$(1)/%.o)
-
-$$(if $$(CXX_$(1)),,$$(eval CXX_$(1)=$(CC)))
-$$(if $$(LDFLAGS_$(1)),,$$(eval LDFLAGS_$(1)=$(LDFLAGS)))
-$$(if $$(CFLAGS_$(1)),,$$(eval CFLAGS_$(1)=$(CFLAGS)))
+TOOLS=$(CXX_CONTAINER_IMAGE) $(CXX) $(AR) $(RANLIB)
+OBJS=$(SRCS:src/%.cpp=$(OBJ_DIR)/$(PLATFORM)/%.o)
 
 ifneq ($(DEBUG_INFO),)
-$$(info obj_dir=$$(OBJ_DIR)/$(1))
-$$(info LIB_NAME_$(1)=$$(LIB_NAME_$(1)))
-$$(info OBJS_$(1)=$$(OBJS_$(1)))
-$$(info CXX_$(1)=$$(CXX_$(1)))
-$$(info LDFLAGS_$(1)=$$(LDFLAGS_$(1)))
-$$(info CFLAGS_$(1)=$$(CFLAGS_$(1)))
-endif
-
-$$(OBJ_DIR)/$(1):
-	mkdir -p "$$@"
-
-$$(OBJ_DIR)/$(1)/%.o: src/%.cpp | $(OBJ_DIR)/$(1) $(CXX_$(1)) $(GODOT_CPP_GEN)
-	$$(CXX_$(1)) $$(CFLAGS_$(1)) -c "$$<" -o "$$@"
-
-$$(LIB_NAME_$(1)): $$(OBJS_$(1)) | $(LIB_DIR) $(TARGET_DIR) $(CXX_$(1)) $(GODOT_CPP_GEN)
-	$$(CXX_$(1)) "$$^" -o "$$@" $$(LDFLAGS_$(1))
-
-endef
-
-# DEBUG and platform loop
-
-ifneq ($(DEBUG_INFO),)
+$(info GODOT_CPP_GEN_CPP=$(wordlist 1,5,$(GODOT_CPP_GEN_CPP)))
 $(info PLATFORMS=$(PLATFORMS))
 $(info TARGET_DIR=$(TARGET_DIR))
 $(info GODOT_INCLUDES=$(GODOT_INCLUDES))
+$(info OBJ_DIR/$(PLATFORM)=$(OBJ_DIR)/$(PLATFORM))
+$(info LIB_NAME=$(LIB_NAME))
+$(info OBJS=$(OBJS))
+$(info CXX=$(CXX))
+$(info LDFLAGS=$(LDFLAGS))
+$(info CFLAGS=$(CFLAGS))
 endif
 
-$(foreach platform,$(PLATFORMS),$(eval $(call OBJS,$(platform))))
+$(OBJ_DIR)/$(PLATFORM):
+	mkdir -p "$@"
+
+$(OBJ_DIR)/$(PLATFORM)/%.o: src/%.cpp | $(OBJ_DIR)/$(PLATFORM) $(TOOLS) $(GODOT_CPP_GEN)
+	$(CXX) $(CFLAGS) -c "$<" -o "$@"
+
+$(LIB_NAME_$(PLATFORM)): $(OBJS) | $(LIB_DIR) $(TARGET_DIR) $(TOOLS) $(GODOT_CPP_GEN)
+	$(CXX) "$^" -o "$@" $(LDFLAGS)
