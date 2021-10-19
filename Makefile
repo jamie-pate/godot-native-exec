@@ -52,7 +52,7 @@ RUN_DOCKERIZED=run-build-tool.sh
 
 GODOT_INCLUDES=$(addprefix -Igodot-cpp/,include/ include/core/ include/gen/ godot-headers/)
 
-CFLAGS = -O3 -std=c++17 ${WARNS} $(GODOT_INCLUDES)
+CFLAGS=-O3 -std=c++17 -D_WIN32_WINNT=0x0600 $(WARNS) $(GODOT_INCLUDES) $(EXTRA_CFLAGS)
 # TODO: separate ldflags per platform
 LDFLAGS = -shared -s -Wl,--subsystem,windows,--out-implib,lib/lib$(LIBNAME).a -lmingw32
 

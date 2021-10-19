@@ -1,0 +1,7 @@
+{
+    // https://github.com/microsoft/vscode-cpptools/issues/3341#issuecomment-475709024
+    "C_Cpp.intelliSenseCacheSize": 0,
+    "files.associations": {
+        "cstddef": "cpp"
+    }
+}

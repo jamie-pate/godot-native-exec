@@ -4,18 +4,20 @@
             "name": "Linux",
             "includePath": [
                 "${default}",
+                "/usr/share/mingw-w64/include",
                 "${workspaceFolder}/godot-cpp/include/gen",
                 "${workspaceFolder}/godot-cpp/include/core",
                 "${workspaceFolder}/godot-cpp/godot-headers",
                 "${workspaceFolder}/godot-cpp/include"
             ],
-            "compilerPath": "/usr/bin/gcc",
+            "windowsSdkVersion": "10.0.18362.0",
+            "compilerPath": "/usr/bin/x86_64-w64-mingw32-gcc",
             "cStandard": "c17",
-            "cppStandard": "c++14",
-            "intelliSenseMode": "linux-clang-x64",
+            "cppStandard": "c++17",
             "compilerArgs": [
-                "-std:c++17 -Wall"
-            ]
+                "-std:c++17", "-Wall", "-D_WIN32_WINNT=0x0600"
+            ],
+            "intelliSenseMode": "windows-gcc-x86"
         }
     ],
     "version": 4
