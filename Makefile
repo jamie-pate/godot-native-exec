@@ -6,6 +6,9 @@
 ifndef TARGET_DIR
 	TARGET_DIR=bin
 endif
+
+export PATH := $(PATH):$(CURDIR)/tools
+
 OBJ_DIR=obj
 SRC_DIR=src
 LIB_DIR=lib
@@ -36,10 +39,11 @@ AR=$(TOOL_PREFIX)ar
 RANLIB=$(TOOL_PREFIX)ranlib
 OBJDUMP=$(TOOL_PREFIX)objdump
 BASH_DOCKERIZED=$(TOOLS_DIR)/bash
+SCONS=$(TOOLS_DIR)/scons
 
-BUILD_TOOLS_LINKS=$(CXX) $(AR) $(RANLIB)
+BUILD_TOOLS_LINKS=$(CXX) $(AR) $(RANLIB) $(SCONS)
 EXTRA_TOOLS_LINKS=$(BASH_DOCKERIZED) $(OBJDUMP)
-BUILD_TOOLS=$(CXX_CONTAINER_IMAGE) $(BUILD_TOOLS_ONLY)
+BUILD_TOOLS=$(CXX_CONTAINER_IMAGE) $(BUILD_TOOLS_LINKS)
 
 # docker container. The image id is written to the stamp file
 CXX_CONTAINER_TAG=godot-gdnative-exec-build
@@ -68,7 +72,8 @@ GODOT_CPP_GEN_DIR=godot-cpp/src/gen
 __GODOT_CPP_GEN_CLASSES=__init_method_bindings __register_types
 # Scrape generated class names from api.json and add them as dependencies
 # TODO: This grep|sed combo is probably super fragile?
-GODOT_CPP_GEN_CLASSES=$(__GODOT_CPP_GEN_CLASSES) $(shell grep -P '^\t\t"name": "' godot-cpp/godot-headers/api.json | sed -E 's/^\t\t"name": "_?([^"]+)",?/\1/g')
+GODOT_CPP_API_JSON=godot-cpp/godot-headers/api.json
+GODOT_CPP_GEN_CLASSES=$(__GODOT_CPP_GEN_CLASSES) $(shell [ -f "$(GODOT_CPP_API_JSON)" ] && grep -P '^\t\t"name": "' "$(GODOT_CPP_API_JSON)" | sed -E 's/^\t\t"name": "_?([^"]+)",?/\1/g')
 GODOT_CPP_GEN_CPP=$(addprefix godot-cpp/src/gen/,$(addsuffix .cpp,$(GODOT_CPP_GEN_CLASSES)))
 GODOT_CPP_GEN_OBJS=$(addprefix godot-cpp/src/gen/,$(addsuffix .o,$(GODOT_CPP_GEN_CLASSES)))
 GODOT_CPP_CORE_CPP=$(wildcard godot-cpp/src/core/*.cpp)
@@ -113,7 +118,7 @@ osx: $(LIB_NAME_osx)
 linux: $(LIB_NAME_linux)
 
 # containerized build tools
-build_tools: $(BUILD_TOOLS_ONLY)
+build_tools: $(BUILD_TOOLS_LINKS)
 # containerized toolchain tools and bash, etc
 extra_tools: $(EXTRA_TOOLS_LINKS)
 
@@ -124,14 +129,14 @@ $(TARGET_DIR) $(OBJ_DIR) $(LIB_DIR) $(TOOLS_DIR) $(OBJ_DIR)/$(PLATFORM):
 
 ### TOOL rules
 
-$(BUILD_TOOLS_ONLY) $(EXTRA_TOOLS_LINKS): $(RUN_DOCKERIZED) | $(TOOLS_DIR)
+$(BUILD_TOOLS_LINKS) $(EXTRA_TOOLS_LINKS): $(RUN_DOCKERIZED) | $(TOOLS_DIR)
 	ln -fs ../$(notdir $(RUN_DOCKERIZED)) $@
 
-$(CXX_CONTAINER_IMAGE): Dockerfile $(OBJ_DIR)
+$(CXX_CONTAINER_IMAGE): Dockerfile | $(OBJ_DIR)
 	docker build . -t $(CXX_CONTAINER_TAG) && docker image ls $(CXX_CONTAINER_TAG) -q > $@
 
 ### godot-cpp rules
-
+$(GODOT_CPP_API_JSON): $(GODOT_CPP_SUBMODULE)
 $(GODOT_CPP_SUBMODULE):
 	git submodule update --init --recursive $(dir $@)
 
@@ -141,9 +146,9 @@ $(GODOT_CPP_SUBMODULE):
 # separate volume inside the docker container for each platform?
 
 # reset -I fixes the terminal which gets bunged up by this step...
-$(GODOT_CPP_GEN_CPP) $(GODOT_CPP_OBJS) $(GODOT_CPP_GEN_DIR)&: $(GODOT_CPP_SUBMODULE) | $(BUILD_TOOLS)
-	export PATH=${PATH}:$(CURDIR)/$(TOOLS_DIR);cd godot-cpp; \
-	scons generate_bindings=yes platform=$(PLATFORM) -j$$(nproc) ; reset -I
+$(GODOT_CPP_GEN_CPP) $(GODOT_CPP_OBJS) $(GODOT_CPP_GEN_DIR)&: $(GODOT_CPP_API_JSON) | $(BUILD_TOOLS)
+	cd godot-cpp; \
+	../tools/scons generate_bindings=yes platform=$(PLATFORM) use_mingw=yes -j$$(nproc) ; reset -I
 
 ### Compile Rules
 
@@ -154,7 +159,13 @@ $(OBJ_DIR)/%.d: src/%.cpp | $(OBJ_DIR) $(BUILD_TOOLS)
 $(OBJ_DIR)/$(PLATFORM)/%.o: src/%.cpp | $(OBJ_DIR)/$(PLATFORM) $(BUILD_TOOLS) $(GODOT_CPP_GEN_CPP)
 	$(CXX) $(CFLAGS) -c "$<" -o "$@"
 
-$(LIB_NAME_$(PLATFORM)): $(OBJS) $(GODOT_CPP_OBJS) | $(LIB_DIR) $(TARGET_DIR) $(BUILD_TOOLS) $(GODOT_CPP_GEN_DIR)
-	$(CXX) $^ -o "$@" $(LDFLAGS)
+# save the list of .o files to a file because gnu make on windows may have a
+# low limit on how many chars we are allowed. we need like 23888 chars.
+# xargs --show-limits: Maximum length of command we could actually use: 19492
+# @file is the answer! https://linux.die.net/man/1/ld
+$(LIB_NAME_$(PLATFORM)): $(OBJS) $(GODOT_CPP_OBJS) | $(LIB_DIR) $(TARGET_DIR) $(BUILD_TOOLS)
+	$(file > obj/link_objs,$^)
+	$(CXX) @obj/link_objs -o "$@" $(LDFLAGS)
+	rm obj/link_objs
 
-include $(DEPS)
+-include $(DEPS)
