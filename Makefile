@@ -50,33 +50,29 @@ endif
 ifndef TOOL_PREFIX
 TOOL_PREFIX=
 ifeq ($(PLATFORM),windows)
-ifeq ($(NATIVE_TOOLCHAIN),)
-# script that runs tools from inside the docker container against our code
+ifneq ($(OS),Windows_NT)
+# cross compile from linux or docker?
+TOOL_PREFIX=x86_64-w64-mingw32-
+endif
+endif
+endif
 RUN_DOCKERIZED=run-build-tool.sh
-BASE_TOOLS_PREFIX=$(TOOLS_DIR)/
-TOOL_PREFIX=$(BASE_TOOLS_DIR)x86_64-w64-mingw32-
-endif
-endif
-endif
 
 # build tools
 CXX=$(TOOL_PREFIX)g++$(TOOL_SUFFIX)
 AR=$(TOOL_PREFIX)ar$(TOOL_SUFFIX)
 RANLIB=$(TOOL_PREFIX)ranlib$(TOOL_SUFFIX)
 OBJDUMP=$(TOOL_PREFIX)objdump$(TOOL_SUFFIX)
-BASH_DOCKERIZED=$(BASE_TOOLS_DIR)bash$(TOOL_SUFFIX)
-SCONS=$(BASE_TOOLS_DIR)scons$(TOOL_SUFFIX)
+CONTAINER_CXX=$(TOOLS_DIR)/$(CXX)
+CONTAINER_AR=$(TOOLS_DIR)/$(AR)
+CONTAINER_RANLIB=$(TOOLS_DIR)/$(RANLIB)
+CONTAINER_OBJDUMP=$(TOOLS_DIR)/$(OBJDUMP)
+CONTAINER_BASH=$(TOOLS_DIR)/bash$(TOOL_SUFFIX)
+CONTAINER_SCONS=$(TOOLS_DIR)/scons$(TOOL_SUFFIX)
+CONTAINER_MAKE=$(TOOLS_DIR)/make$(TOOL_SUFFIX)
 
-ifneq ($(RUN_DOCKERIZED),)
-# docker container. The image id is written to the stamp file
-CXX_CONTAINER_TAG=godot-gdnative-exec-build
-CXX_CONTAINER_STAMP=$(OBJ_DIR)/$(CXX_CONTAINER_TAG).stamp
-CXX_CONTAINER_IMAGE=$(CXX_CONTAINER_STAMP)
-
-BUILD_TOOLS_LINKS=$(CXX) $(AR) $(RANLIB) $(SCONS)
-EXTRA_TOOLS_LINKS=$(BASH_DOCKERIZED) $(OBJDUMP)
-BUILD_TOOLS=$(CXX_CONTAINER_IMAGE) $(BUILD_TOOLS_LINKS)
-endif
+BUILD_TOOLS_DOCKER=$(CONTAINER_MAKE)
+EXTRA_TOOLS_DOCKER=$(CONTAINER_SCONS) $(CONTAINER_BASH) $(CONTAINER_OBJDUMP) $(CONTAINER_CXX) $(CONTAINER_AR) $(CONTAINER_RANLIB)
 
 GODOT_INCLUDES=$(addprefix -Igodot-cpp/,include/ include/core/ include/gen/ godot-headers/)
 
@@ -153,9 +149,9 @@ osx: $(LIBNAME_osx)
 linux: $(LIBNAME_linux)
 
 # containerized build tools
-build_tools: $(BUILD_TOOLS_LINKS)
+build_tools: $(BUILD_TOOLS_DOCKER)
 # containerized toolchain tools and bash, etc
-extra_tools: $(EXTRA_TOOLS_LINKS)
+extra_tools: $(EXTRA_TOOLS_DOCKER)
 
 ### DIR rules
 
@@ -164,13 +160,8 @@ $(TARGET_DIR) $(OBJ_DIR) $(TOOLS_DIR) $(OBJ_DIR)/$(PLATFORM):
 
 ### TOOL rules
 
-ifneq ($(RUN_DOCKERIZED),)
-$(BUILD_TOOLS_LINKS) $(EXTRA_TOOLS_LINKS): $(RUN_DOCKERIZED) | $(TOOLS_DIR)
+$(BUILD_TOOLS_DOCKER) $(EXTRA_TOOLS_DOCKER): $(RUN_DOCKERIZED) | $(TOOLS_DIR)
 	ln -fs ../$(notdir $(RUN_DOCKERIZED)) $@
-
-$(CXX_CONTAINER_IMAGE): Dockerfile | $(OBJ_DIR)
-	docker build . -t $(CXX_CONTAINER_TAG) && docker image ls $(CXX_CONTAINER_TAG) -q > $@
-endif
 
 
 ### godot-cpp rules
@@ -184,9 +175,9 @@ $(GODOT_CPP_SUBMODULE):
 # separate volume inside the docker container for each platform?
 
 # reset -I fixes the terminal which gets bunged up by this step...
-$(GODOT_CPP_GEN_CPP) $(GODOT_CPP_OBJS) $(GODOT_CPP_GEN_DIR)&: $(GODOT_CPP_API_JSON) | $(BUILD_TOOLS)
+$(GODOT_CPP_GEN_CPP) $(GODOT_CPP_OBJS) $(GODOT_CPP_GEN_DIR)&: $(GODOT_CPP_API_JSON)
 	cd godot-cpp; set -e; \
-	$(SCONS) generate_bindings=yes platform=$(PLATFORM) use_mingw=yes -j$$(nproc) ; reset -I
+	scons generate_bindings=yes platform=$(PLATFORM) use_mingw=yes -j$$(nproc) ; reset -I
 
 ### Compile Rules
 

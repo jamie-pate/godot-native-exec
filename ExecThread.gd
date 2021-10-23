@@ -8,7 +8,6 @@ func exec(cmd: String, args: PoolStringArray, stdout := [], stderr := [], timeou
 	var stdout_ = []
 	var stderr_ = []
 	var instance = {}
-	print('_thread_exec(%s, %s)' % [cmd, args])
 	var err = thread.start(self, '_thread_exec', {
 		cmd=cmd,
 		args=args,
@@ -29,7 +28,6 @@ func exec(cmd: String, args: PoolStringArray, stdout := [], stderr := [], timeou
 	return result
 
 func _thread_exec(a):
-	call_deferred('_print', 'thread')
 	var result := 0
 	if OS.get_name() == 'Windows':
 		var ne := NativeExec.new()
@@ -37,12 +35,8 @@ func _thread_exec(a):
 	else:
 		# unfortunately stderr will be combined here...
 		result = OS.execute(a.cmd, a.args, true, a.stdout, true)
-	call_deferred('_print', 'result %s' % [result])
 	call_deferred('_emit_completed', a.instance)
 	return result
-
-func _print(value):
-	print(value)
 
 func _emit_completed(instance: Dictionary):
 	emit_signal('_completed', instance)
