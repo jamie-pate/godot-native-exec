@@ -1,0 +1,17 @@
+[general]
+
+singleton=false
+load_once=true
+symbol_prefix="godot_"
+reloadable=false
+
+[entry]
+
+Windows.64="res://addons/GodotNativeExec/godot-native-exec.dll"
+
+
+[dependencies]
+
+X11.64=[]
+Windows.64=[]
+OSX.64=[]

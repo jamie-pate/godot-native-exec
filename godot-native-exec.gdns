@@ -1,0 +1,9 @@
+[gd_resource type="NativeScript" load_steps=2 format=2]
+
+[ext_resource path="res://addons/GodotNativeExec/godot-native-exec.gdnlib" type="GDNativeLibrary" id=1]
+
+[resource]
+
+resource_name = "native_exec"
+class_name = "NativeExec"
+library = ExtResource( 1 )

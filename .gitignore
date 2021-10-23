@@ -3,3 +3,4 @@ obj
 lib
 tools
 godot-cpp/src/gen
+/godot/addons/GodotNativeExec
