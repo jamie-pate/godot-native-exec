@@ -45,15 +45,18 @@ static void _godot_print_error(const char *p_description, int err, const char *p
 static size_t readToArray(HANDLE handle, Array output) {
     bool success = false;
     DWORD read_bytes;
-    //wchar_t buf[BUFSIZE];
-    char buf[BUFSIZE];
+    char *buf;
     success = PeekNamedPipe(handle, NULL, 0, NULL, &read_bytes, NULL);
     if (success && read_bytes > 0) {
-        success = ReadFile(handle, buf, sizeof(buf), &read_bytes, NULL);
-    }
-    if (success && read_bytes > 0) {
-        debug_print(buf);
-        output.append(godot::String(buf));
+        buf = (char *)godot::api->godot_alloc(read_bytes + 1);
+        buf[read_bytes] = 0;
+        success = ReadFile(handle, buf, read_bytes, &read_bytes, NULL);
+        if (success && read_bytes > 0) {
+            String str = buf;
+            debug_print(str);
+            output.append(str);
+        }
+        godot::api->godot_free(buf);
     }
     return success ? read_bytes : 0;
 }

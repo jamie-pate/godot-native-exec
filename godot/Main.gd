@@ -45,7 +45,7 @@ func _temp_file(suffix) -> String:
 
 const NativeExec = preload('res://addons/GodotNativeExec/godot-native-exec.gdns')
 func _on_Button_pressed():
-
+	$VBoxContainer/HBoxContainer/Button.disabled = true
 	var sysinfo_js := _extract_file('res://sysinfo.js')
 	$VBoxContainer/RichTextLabel.text += 'executing:\n'
 	#NativeExec.exec('cmd /V', stdout, stderr, 1000)
@@ -73,7 +73,20 @@ func _on_Button_pressed():
 				show_text('found %s after %sms' % [dxdiag_tmp, OS.get_ticks_msec() - start])
 			else:
 				show_text('found %s' % [dxdiag_tmp])
-			yield(do_exec('cscript', ['/nologo', 'xmltojson.js', dxdiag_tmp]), 'completed')
+
+			yield(_xml_to_json(dxdiag_tmp), 'completed')
+			var d = Directory.new()
+			#d.remove(dxdiag_tmp)
+
+	$VBoxContainer/HBoxContainer/Button.disabled = false
+
+func _xml_to_json(dxdiag_tmp):
+	var f = File.new()
+	if f.file_exists(dxdiag_tmp):
+		f.open(dxdiag_tmp, File.READ)
+		show_text('%s bytes' % [f.get_len()])
+		f.close()
+	return yield(do_exec('cscript', ['/nologo', 'xmltojson.js', dxdiag_tmp]), 'completed')
 
 func do_exec(cmd, args):
 	$Sprite.visible = true
@@ -95,5 +108,5 @@ func do_exec(cmd, args):
 	return result == 0
 
 func show_text(value):
-	print(value)
+	#print(value)
 	$VBoxContainer/RichTextLabel.text += '%s\n' % [value]
