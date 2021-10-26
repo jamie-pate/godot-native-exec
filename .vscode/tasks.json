@@ -12,7 +12,7 @@
             "label": "make",
             "type": "shell",
             "command": "make",
-            "args": ["EXTRA_CFLAGS=-fmax-errors=1", "NATIVE_TOOLCHAIN=1", "DEBUG=1", "DEBUG_INFO=1"],
+            "args": ["EXTRA_CFLAGS=-fmax-errors=1", "DEBUG=1", "DEBUG_INFO=1"],
             "problemMatcher": ["$gcc"],
             "group": {
                 "kind": "build",

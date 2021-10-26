@@ -1,7 +1,11 @@
-# Usage examples:
-# make
-# make PLATFORM=windows
-# make DEBUG_INFO=1
+# Usage:
+# make [args]
+# container-make.sh [args]
+
+# args:
+# DEBUG_INFO=1: print debug info
+# EXTRA_CFLAGS=-fmax-errors=1: Add extra cflags (e.g. stop after 1 error)
+# DEBUG=1: link with debug symbols and remove optimization
 
 ifndef TARGET_DIR
   TARGET_DIR=godot/addons/GodotNativeExec
@@ -26,7 +30,7 @@ export PATH := $(PATH):$(CURDIR)/tools
 
 CFLAGS=$(CPPFLAGS) $(DEBUG_CFLAGS) $(OPT) -std=c++17 -D_WIN32_WINNT=0x0600 $(WARNS) $(GODOT_INCLUDES) $(EXTRA_CFLAGS)
 # TODO: separate ldflags per platform?
-LDFLAGS=$(DEBUG_LDFLAGS) -shared -static $(LD_STRIP) -Wl,--subsystem,windows
+LDFLAGS=$(DEBUG_LDFLAGS) -shared -static $(LD_STRIP) -Wl,--subsystem,windows $(EXTRA_LDFLAGS)
 
 OBJ_DIR=obj
 SRC_DIR=src
@@ -98,7 +102,7 @@ __GODOT_CPP_GEN_CLASSES=__init_method_bindings __register_types
 # Scrape generated class names from api.json and add them as dependencies
 # TODO: This grep|sed combo is probably super fragile?
 GODOT_CPP_API_JSON=godot-cpp/godot-headers/api.json
-GODOT_CPP_GEN_CLASSES=$(__GODOT_CPP_GEN_CLASSES) $(shell [ -f "$(GODOT_CPP_API_JSON)" ] && grep -P '^\t\t"name": "' "$(GODOT_CPP_API_JSON)" | sed -E 's/^\t\t"name": "_?([^"]+)",?/\1/g')
+
 GODOT_CPP_GEN_CPP=$(addprefix godot-cpp/src/gen/,$(addsuffix .cpp,$(GODOT_CPP_GEN_CLASSES)))
 GODOT_CPP_GEN_OBJS=$(addprefix godot-cpp/src/gen/,$(addsuffix .o,$(GODOT_CPP_GEN_CLASSES)))
 GODOT_CPP_CORE_CPP=$(wildcard godot-cpp/src/core/*.cpp)
@@ -108,12 +112,14 @@ GODOT_CPP_OBJS=$(GODOT_CPP_GEN_OBJS) $(GODOT_CPP_CORE_OBJS)
 # Project dependencies
 SRCS=$(wildcard src/*.cpp)
 OBJS=$(SRCS:src/%.cpp=$(OBJ_DIR)/$(PLATFORM)/%.o)
-DEPS=$(SRCS:src/%.cpp=$(OBJ_DIR)/%.d)
+GODOT_CPP_API_MK=$(OBJ_DIR)/api_classes.mk
+DEPS=$(SRCS:src/%.cpp=$(OBJ_DIR)/%.d) $(GODOT_CPP_API_MK)
 
 ifneq ($(DEBUG_INFO),)
 $(info GODOT_CPP_GEN_CPP=$(wordlist 1,5,$(GODOT_CPP_GEN_CPP)))
 $(info GODOT_CPP_CORE_OBJS=$(GODOT_CPP_CORE_OBJS))
-$(info PLATFORMS=$(PLATFORMS))
+$(info GODOT_CPP_OBJS=$(GODOT_CPP_OBJS))
+$(info PLATFORM=$(PLATFORM))
 $(info TARGET_DIR=$(TARGET_DIR))
 $(info GODOT_INCLUDES=$(GODOT_INCLUDES))
 $(info OBJ_DIR/$(PLATFORM)=$(OBJ_DIR)/$(PLATFORM))
@@ -122,6 +128,7 @@ $(info OBJS=$(OBJS))
 $(info CXX=$(CXX))
 $(info LDFLAGS=$(LDFLAGS))
 $(info CFLAGS=$(CFLAGS))
+$(info DEPS=$(DEPS))
 endif
 
 ### Phony RULES
@@ -163,21 +170,27 @@ $(TARGET_DIR) $(OBJ_DIR) $(TOOLS_DIR) $(OBJ_DIR)/$(PLATFORM):
 $(BUILD_TOOLS_DOCKER) $(EXTRA_TOOLS_DOCKER): $(RUN_DOCKERIZED) | $(TOOLS_DIR)
 	ln -fs ../$(notdir $(RUN_DOCKERIZED)) $@
 
-
 ### godot-cpp rules
 $(GODOT_CPP_API_JSON): $(GODOT_CPP_SUBMODULE)
 $(GODOT_CPP_SUBMODULE):
 	git submodule update --init --recursive $(dir $@)
+
+$(GODOT_CPP_API_MK): $(GODOT_CPP_API_JSON) Makefile $(OBJ_DIR)
+	echo API_CLASSES="$$(grep -P '^\t\t"name": "' "$<" | sed -E 's/^\t\t"name": "_?([^"]+)",?/\1/g')" | tr '\n' ' ' > $@
 
 # TODO: can + make scons aware of the job server? using nproc for now.
 # Without -j is very slow.
 # TODO: multiplatform? mount godot-cpp/src/gen in a
 # separate volume inside the docker container for each platform?
 
+include $(GODOT_CPP_API_MK)
+API_CLASSES+= $(__GODOT_CPP_GEN_CLASSES)
+GODOT_CPP_GEN_CPP=$(API_CLASSES:%=godot-cpp/src/gen/%.cpp)
+GODOT_CPP_GEN_OBJS=$(API_CLASSES:%=godot-cpp/src/gen/%.o)
 # reset -I fixes the terminal which gets bunged up by this step...
 $(GODOT_CPP_GEN_CPP) $(GODOT_CPP_OBJS) $(GODOT_CPP_GEN_DIR)&: $(GODOT_CPP_API_JSON)
 	cd godot-cpp; set -e; \
-	scons generate_bindings=yes platform=$(PLATFORM) use_mingw=yes -j$$(nproc) ; reset -I
+	scons generate_bindings=yes platform=$(PLATFORM) use_mingw=yes -j$$(nproc) > /dev/null && reset -I || (echo 'SCONS FAIL'; reset -I ; false)
 
 ### Compile Rules
 
@@ -196,4 +209,4 @@ $(LIBNAME_$(PLATFORM)): $(OBJS) $(GODOT_CPP_OBJS) | $(DEPS) $(TARGET_DIR) $(BUIL
 	$(CXX) @obj/link_objs -o "$@" $(LDFLAGS) && \
 	rm obj/link_objs
 
--include $(DEPS)
+include $(DEPS)
