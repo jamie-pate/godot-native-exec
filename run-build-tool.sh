@@ -1,11 +1,6 @@
 #!/usr/bin/bash
 
 docker() {
-    WINPTY=
-    if [[ "$TERM_PROGRAM" == "mintty" ]]; then
-        WINPTY=winpty
-    fi
-
     realdocker='docker.exe'
     # prevent mingw from converting paths to windows path names
     export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"
@@ -26,6 +21,11 @@ CONTAINER_TAG=godot-gdnative-exec-build
 # docker and make don't really mix well, just take care of docker in this script
 IMAGE_TIME=$(date -d "$(docker image ls ${CONTAINER_TAG} --format "{{.CreatedAt}}" | awk {'print $1 " " $2'})" +%s)
 DOCKERFILE_TIME=$(stat ${DIR}/Dockerfile --format %Y)
+
+WINPTY=
+if [[ "$TERM_PROGRAM" == "mintty" ]]; then
+    WINPTY=winpty
+fi
 set -eu
 
 if [ -z "$IMAGE_TIME" ] || [ $IMAGE_TIME -lt $DOCKERFILE_TIME ]; then
