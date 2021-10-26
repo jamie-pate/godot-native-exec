@@ -187,10 +187,9 @@ include $(GODOT_CPP_API_MK)
 API_CLASSES+= $(__GODOT_CPP_GEN_CLASSES)
 GODOT_CPP_GEN_CPP=$(API_CLASSES:%=godot-cpp/src/gen/%.cpp)
 GODOT_CPP_GEN_OBJS=$(API_CLASSES:%=godot-cpp/src/gen/%.o)
-# reset -I fixes the terminal which gets bunged up by this step...
 $(GODOT_CPP_GEN_CPP) $(GODOT_CPP_OBJS) $(GODOT_CPP_GEN_DIR)&: $(GODOT_CPP_API_JSON)
 	cd godot-cpp; set -e; \
-	scons generate_bindings=yes platform=$(PLATFORM) use_mingw=yes -j$$(nproc) > /dev/null && reset -I || (echo 'SCONS FAIL'; reset -I ; false)
+	scons generate_bindings=yes platform=$(PLATFORM) use_mingw=yes -j$$(nproc) > /dev/null
 
 ### Compile Rules
 
