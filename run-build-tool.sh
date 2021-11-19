@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 
 # If we are running inside mintty we need to prefix the docker command with winpty.exe
 # unfortunately it does not support MSYS_NO_PATHCONV or MSYS2_ARG_CONV_EXCL
