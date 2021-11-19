@@ -4,15 +4,18 @@ A gdnative extension for executing console programs on windows without popping u
 
 ## Build Requirements
 
-* Docker
-* Gnu Make
+* Docker *or* `mingw` toolchain, `scons`
+* bash
 
 ## Building
 
 Build with make:
-* `make`: normal build using dockerized toolchain
-* `make DEBUG=1`: to build with symbols and disable optimizations.
-* `make NATIVE_TOOLCHAIN=1`: to avoid the dockerized toolchain and use the native tools in `$PATH`.
+* `make`: Normal build using your native toolchain.
+* `make DEBUG=1`: Build with symbols and disable optimizations.
+* `make TARGET_DIR=/path/to/addons/GodotNativeExec`: Install plugin into a different directory. (Use caution when using docker as this directory may be inside the container!)
+* `./container-make.sh`: Build with dockerized toolchain.
+
+The plugin artifacts will be installed in 
 
 ## Debugging
 
