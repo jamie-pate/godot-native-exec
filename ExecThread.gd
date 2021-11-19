@@ -33,8 +33,8 @@ func _thread_exec(a):
 		var ne := NativeExec.new()
 		result = ne.exec(a.cmd, a.args, a.stdout, a.stderr, a.timeout)
 	else:
-		# unfortunately stderr will be combined here...
-		result = OS.execute(a.cmd, a.args, true, a.stdout, true)
+		# unfortunately stderr would be combined here... so disable it
+		result = OS.execute(a.cmd, a.args, true, a.stdout, false)
 	call_deferred('_emit_completed', a.instance)
 	return result
 
