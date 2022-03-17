@@ -21,7 +21,8 @@ IT=$([ -t 0 ] && echo '-it')
 
 CONTAINER_TAG=godot-gdnative-exec-build
 # docker and make don't really mix well, just take care of docker in this script
-IMAGE_TIME=$(date -d "$(docker image ls ${CONTAINER_TAG} --format "{{.CreatedAt}}" | awk {'print $1 " " $2'})" +%s)
+IMAGE_TS="$(docker image ls ${CONTAINER_TAG} --format "{{.CreatedAt}}" | awk {'print $1 " " $2'})"
+IMAGE_TIME=$(date -d "${IMAGE_TS}" +%s)
 DOCKERFILE_TIME=$(stat ${DIR}/Dockerfile --format %Y)
 
 DOCKER=docker
@@ -30,7 +31,7 @@ if [[ "$TERM_PROGRAM" == "mintty" ]]; then
 fi
 set -eu
 
-if [ -z "$IMAGE_TIME" ] || [ $IMAGE_TIME -lt $DOCKERFILE_TIME ]; then
+if [ -z "$IMAGE_TS" ] || [ $IMAGE_TIME -lt $DOCKERFILE_TIME ]; then
     docker build . -t ${CONTAINER_TAG}
 fi
 
