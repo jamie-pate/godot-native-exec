@@ -9,8 +9,9 @@
 
 using namespace godot;
 
-HANDLE CreateChildProcess(String cmdline, PoolStringArray args, HANDLE childStdIn, HANDLE childStdOut, HANDLE childStdErr);
+HANDLE CreateChildProcess(String cmdline, PoolStringArray args, HANDLE &childStdIn, HANDLE &childStdOut, HANDLE &childStdErr);
 
+// #define DEBUG
 #ifdef DEBUG
 #define debug_print(msg) Godot::print(msg)
 #else
@@ -52,7 +53,7 @@ static size_t readToArray(HANDLE handle, Array output) {
         buf[read_bytes] = 0;
         success = ReadFile(handle, buf, read_bytes, &read_bytes, NULL);
         if (success && read_bytes > 0) {
-            String str = buf;
+            Variant str = buf;
             debug_print(str);
             output.append(str);
         }
@@ -141,26 +142,33 @@ godot_int NativeExec::exec(String cmd, PoolStringArray args, Array stdout_, Arra
     sAttr.lpSecurityDescriptor = nullptr;
 
     if (!CreatePipe(&childStdOutRd, &childStdOutWr, &sAttr, 0)) {
+        debug_print("exec::CreatePipe() failed ");
         goto exit;
     }
     if (!SetHandleInformation(childStdOutRd, HANDLE_FLAG_INHERIT, 0)) {
+        debug_print("exec::SetHandleInformation(childStdOutRd) failed ");
         goto exit;
     }
     if (!CreatePipe(&childStdErrRd, &childStdErrWr, &sAttr, 0)) {
+        debug_print("exec::createPipe(childStdErrRd) failed ");
         goto exit;
     }
     if (!SetHandleInformation(childStdErrRd, HANDLE_FLAG_INHERIT, 0)) {
+        debug_print("exec::SetHandleInformation(childStdErrRd) failed ");
         goto exit;
     }
     if (!CreatePipe(&childStdInRd, &childStdInWr, &sAttr, 0)) {
+        debug_print("exec::CreatePipe(childStdInRd) failed ");
         goto exit;
     }
     if (!SetHandleInformation(childStdInWr, HANDLE_FLAG_INHERIT, 0)) {
+        debug_print("exec::SetHandleInformation(childStdInRd) failed ");
         goto exit;
     }
 
     processHandle = CreateChildProcess(cmd, args, childStdInRd, childStdOutWr, childStdErrWr);
     if (processHandle == INVALID_HANDLE_VALUE) {
+        debug_print("exec::CreateChildProcess(...) failed ");
         exitCode = 0xFFFF;
         goto exit;
     }
@@ -194,16 +202,20 @@ exit:
         childStdInRd,
         childStdInWr
     };
+    int i = 0;
     for (const auto& h: handles) {
         if (h != INVALID_HANDLE_VALUE) {
+            debug_print("exec::Close Handle " + String::num_int64(i));
             CloseHandle(h);
         }
+        ++i;
     }
+    debug_print("~NativeExec::exec()");
     return exitCode;
 }
 
 
-HANDLE CreateChildProcess(String cmd, PoolStringArray args, HANDLE childStdIn, HANDLE childStdOut, HANDLE childStdErr) {
+HANDLE CreateChildProcess(String cmd, PoolStringArray args, HANDLE &childStdIn, HANDLE &childStdOut, HANDLE &childStdErr) {
 // Create a child process that uses the previously created pipes for STDIN and STDOUT.
     PROCESS_INFORMATION procInfo = {0};
     STARTUPINFOW startInfo = {0};
@@ -225,13 +237,21 @@ HANDLE CreateChildProcess(String cmd, PoolStringArray args, HANDLE childStdIn, H
         quotedArgs += " ";
         quotedArgs += args[i].find(" ") > -1 ? "\"" + args[i] + "\"" : args[i];
     }
+    const wchar_t *wArgs = quotedArgs.unicode_str();
+    size_t size = sizeof(wchar_t) * (quotedArgs.length() + 1);
+    wchar_t *wArgsBuff = (wchar_t *)godot::api->godot_alloc(size);
+    memcpy(wArgsBuff, wArgs, size);
+    debug_print("CreateProcesW");
     debug_print(quotedArgs);
+    debug_print(String::num_int64(size));
+    debug_print("wArgsBuff");
+    debug_print(wArgsBuff);
     // Create the child process.
     bSuccess = CreateProcessW(
         // Don't use application name because it won't run from $PATH
         NULL,
-        // I think it's ok if this buffer gets modified..
-        (wchar_t *)quotedArgs.unicode_str(), // command line
+        // This buffer may be modified (null character added after the process filename)
+        wArgsBuff, // command line
         NULL,          // process security attributes
         NULL,          // primary thread security attributes
         TRUE,          // handles are inherited
@@ -240,20 +260,29 @@ HANDLE CreateChildProcess(String cmd, PoolStringArray args, HANDLE childStdIn, H
         NULL,          // use parent's current directory
         &startInfo,  // STARTUPINFO pointer
         &procInfo);  // receives PROCESS_INFORMATION
+    debug_print("wArgsBuff2");
+    debug_print(wArgsBuff);
+    godot::api->godot_free(wArgsBuff);
      // If an error occurs, exit the application.
     if (bSuccess) {
         // Close handles to the child process primary thread.
         // Some applications might keep these handles to monitor the status
         // of the child process, for example.
 
+        debug_print("exec::Close Handle procInfo.hThread");
         CloseHandle(procInfo.hThread);
 
         // Close handles to the stdin and stdout pipes no longer needed by the child process.
         // If they are not explicitly closed, there is no way to recognize that the child process has ended.
-
+        debug_print("exec::Close Handle childStdErr");
         CloseHandle(childStdErr);
+        childStdErr = INVALID_HANDLE_VALUE;
+        debug_print("exec::Close Handle childStdOut");
         CloseHandle(childStdOut);
+        childStdOut = INVALID_HANDLE_VALUE;
+        debug_print("exec::Close Handle childStdIn");
         CloseHandle(childStdIn);
+        childStdIn = INVALID_HANDLE_VALUE;
         return procInfo.hProcess;
     } else {
         PRINT_ERROR("CreateProcess failed", GetLastError());
